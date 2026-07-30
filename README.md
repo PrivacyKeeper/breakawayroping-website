@@ -1,36 +1,77 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BreakawayRoping.pro — Website
 
-## Getting Started
+Marketing site for the BreakawayRoping.pro mobile app. Built to the same
+pattern as the other Rodeo Apps sites (BullRider.pro, BarrelConnect):
+Next.js App Router, Tailwind v4, Resend for the waitlist, no database and no
+auth.
 
-First, run the development server:
+## Commands
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- `npm run dev` — development server (http://localhost:3000)
+- `npm run build` — production build
+- `npm start` — serve the production build
+- `npx eslint .` — lint
+
+## Stack
+
+Next.js 16 (App Router, Turbopack), React 19, TypeScript, Tailwind CSS v4,
+Resend. Path alias `@/*` maps to `./src/*`.
+
+## Required assets
+
+Two files are referenced by the site and are **not** in the repo yet. Drop
+them into `public/` before deploying:
+
+| File | Used by | Notes |
+| --- | --- | --- |
+| `public/logo.png` | Header and hero on every page, OG/Twitter card | The Breakaway crest |
+| `public/cross.jpg` | `CrossQuote` widget | Same asset as the other Rodeo Apps sites |
+
+Optional: `public/backgrounds/arena-1.jpg` and `arena-2.jpg` switch on the
+blurred arena backdrop behind the content (`.arena-page` in `globals.css`).
+Without them the pages render on the flat near-black background, which is a
+deliberate no-op rather than a broken state.
+
+## Environment
+
+| Variable | Purpose |
+| --- | --- |
+| `RESEND_API_KEY` | Waitlist confirmation + team notification email |
+
+Without it, `POST /api/waitlist` returns 503 and the form shows an error. The
+build and every other page work fine without it.
+
+## Structure
+
+```
+src/app/
+  page.tsx                  Landing — 14 feature groups, pricing, waitlist
+  rules/                    Full breakaway rules reference (SEO + authority)
+  events/                   Event types and producer console pitch
+  blog/                     7 SEO posts; index reads from blog/posts.ts
+  support/                  Support topics
+  terms/ privacy/ refund/   Legal
+  api/waitlist/route.ts     Resend handler
+  robots.ts  sitemap.ts     SEO
+  components/
+    SchemaMarkup.tsx        JSON-LD: SoftwareApplication, WebSite, FAQPage
+    CrossQuote.tsx          Rotating verse, matches the other sites
+    Footer.tsx
+  data/quotes.json
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Brand
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Palette is taken from the Breakaway crest and defined in
+`src/app/globals.css`: electric blue `#2eb3ec`, rope gold `#d4af37`, cream
+`#f2e8d5`, on near-black navy `#070c15`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Note this differs from the "hot coral and gold on charcoal plum" in the
+original build map — the crest is the source of truth.
 
-## Learn More
+## Adding a blog post
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Create `src/app/blog/<slug>/page.tsx` with a `metadata` export and an
+   `<article className="prose-arena">` body.
+2. Add the entry to `src/app/blog/posts.ts` (drives the index).
+3. Add the slug to `blogSlugs` in `src/app/sitemap.ts`.
