@@ -361,8 +361,7 @@ export default function Home() {
           className="w-[300px] drop-shadow-2xl md:w-[400px]"
         />
         <h1 className="mt-8 text-4xl font-extrabold tracking-tight text-cream md:text-5xl">
-          Every Run. Every Event.{" "}
-          <span className="text-blue">Every Division.</span>
+          BreakawayRoping<span className="text-blue">.pro</span>
         </h1>
         <p className="mt-4 text-xl font-bold tracking-wide text-gold italic md:text-2xl">
           &ldquo;Two seconds to prove it.&rdquo;
