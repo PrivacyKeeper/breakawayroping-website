@@ -302,20 +302,31 @@ export default function Home() {
   const [status, setStatus] = useState<
     "idle" | "loading" | "success" | "error"
   >("idle");
+  const [errorMessage, setErrorMessage] = useState("");
+  // Honeypot. Hidden from real visitors, so anything here came from a bot.
+  const [company, setCompany] = useState("");
 
   const handleWaitlist = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatus("loading");
+    setErrorMessage("");
     try {
       const res = await fetch("/api/waitlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, company }),
       });
-      if (!res.ok) throw new Error("Failed to submit");
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error ?? "");
+      }
       setStatus("success");
       setEmail("");
-    } catch {
+    } catch (err) {
+      // Prefer the server's reason when it gave one: "that address has a typo"
+      // and "the mail service is down" need very different things from the
+      // visitor, and the generic line tells them neither.
+      setErrorMessage(err instanceof Error ? err.message : "");
       setStatus("error");
     }
   };
@@ -604,6 +615,16 @@ export default function Home() {
             className="flex flex-col gap-4 sm:flex-row"
           >
             <input
+              type="text"
+              name="company"
+              value={company}
+              onChange={(e) => setCompany(e.target.value)}
+              tabIndex={-1}
+              autoComplete="off"
+              aria-hidden="true"
+              className="absolute left-[-9999px] h-0 w-0 opacity-0"
+            />
+            <input
               type="email"
               required
               value={email}
@@ -622,7 +643,7 @@ export default function Home() {
         )}
         {status === "error" && (
           <p className="mt-4 text-sm text-red-400">
-            Something went wrong. Try again.
+            {errorMessage || "Something went wrong. Try again."}
           </p>
         )}
       </section>

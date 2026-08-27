@@ -3,33 +3,122 @@ import { Resend } from "resend";
 
 const resendApiKey = process.env.RESEND_API_KEY;
 
-function getResendClient() {
-  if (!resendApiKey) {
-    return null;
+const FROM = "BreakawayRoping.Pro <support@breakawayroping.pro>";
+const TEAM_INBOX = "support@breakawayroping.pro";
+const CONFIRMATION_SUBJECT = "You're on the BreakawayRoping.Pro waitlist! 🤠";
+
+/**
+ * Deliberately permissive: it rejects the typos people actually make (missing
+ * @, missing TLD, stray spaces) without bouncing the unusual but valid
+ * addresses a stricter pattern would still get wrong.
+ */
+const EMAIL_PATTERN = /^[^\s@,;:<>()[\]\\]+@[^\s@.,;:<>()[\]\\]+(?:\.[^\s@.,;:<>()[\]\\]+)+$/;
+const MAX_EMAIL_LENGTH = 254;
+
+/**
+ * Per-IP throttle. In-memory, so it resets on deploy and counts per serverless
+ * instance — enough to blunt casual bot spam on a public form, not a substitute
+ * for a shared limiter if the form is ever deliberately targeted.
+ */
+const RATE_LIMIT = 5;
+const RATE_WINDOW_MS = 60_000;
+const recentSubmissions = new Map<string, number[]>();
+
+function isRateLimited(ip: string) {
+  const now = Date.now();
+  const recent = (recentSubmissions.get(ip) ?? []).filter(
+    (at) => now - at < RATE_WINDOW_MS,
+  );
+  recent.push(now);
+  recentSubmissions.set(ip, recent);
+
+  // Keep the map from growing without bound on a long-lived instance.
+  if (recentSubmissions.size > 5000) {
+    for (const [key, times] of recentSubmissions) {
+      if (times.every((at) => now - at >= RATE_WINDOW_MS)) {
+        recentSubmissions.delete(key);
+      }
+    }
   }
 
-  return new Resend(resendApiKey);
+  return recent.length > RATE_LIMIT;
+}
+
+function clientIp(req: NextRequest) {
+  const forwarded = req.headers.get("x-forwarded-for");
+  return (
+    forwarded?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "unknown"
+  );
+}
+
+const HTML_ESCAPES: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => HTML_ESCAPES[char]);
 }
 
 export async function POST(req: NextRequest) {
+  let payload: unknown;
   try {
-    const { email } = await req.json();
-    if (!email || !email.includes("@")) {
-      return NextResponse.json({ error: "Invalid email" }, { status: 400 });
-    }
+    payload = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  }
 
-    const resend = getResendClient();
-    if (!resend) {
-      return NextResponse.json(
-        { error: "Waitlist email service is not configured." },
-        { status: 503 },
-      );
-    }
+  const { email, company } = (payload ?? {}) as {
+    email?: unknown;
+    company?: unknown;
+  };
 
-    await resend.emails.send({
-      from: "BreakawayRoping.Pro <support@breakawayroping.pro>",
-      to: email,
-      subject: "You're on the BreakawayRoping.Pro waitlist! 🤠",
+  // Honeypot. The field is hidden from real visitors, so anything in it came
+  // from a bot — answer as if it worked rather than telling it what tripped.
+  if (typeof company === "string" && company.trim() !== "") {
+    return NextResponse.json({ success: true });
+  }
+
+  if (typeof email !== "string") {
+    return NextResponse.json(
+      { error: "Enter your email address." },
+      { status: 400 },
+    );
+  }
+
+  const address = email.trim().toLowerCase();
+  if (address.length > MAX_EMAIL_LENGTH || !EMAIL_PATTERN.test(address)) {
+    return NextResponse.json(
+      { error: "Enter a valid email address." },
+      { status: 400 },
+    );
+  }
+
+  if (!resendApiKey) {
+    return NextResponse.json(
+      { error: "Waitlist email service is not configured." },
+      { status: 503 },
+    );
+  }
+
+  if (isRateLimited(clientIp(req))) {
+    return NextResponse.json(
+      { error: "Too many signups from this connection. Try again in a minute." },
+      { status: 429 },
+    );
+  }
+
+  const resend = new Resend(resendApiKey);
+
+  try {
+    const confirmation = await resend.emails.send({
+      from: FROM,
+      to: address,
+      replyTo: TEAM_INBOX,
+      subject: CONFIRMATION_SUBJECT,
       html: `
         <div style="background-color:#070c15;color:#f2e8d5;padding:40px;font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
           <div style="text-align:center;margin-bottom:30px;">
@@ -70,18 +159,40 @@ export async function POST(req: NextRequest) {
       `,
     });
 
-    // Also notify the team
-    await resend.emails.send({
-      from: "BreakawayRoping.Pro <support@breakawayroping.pro>",
-      to: "support@breakawayroping.pro",
+    // Resend resolves with an `error` rather than throwing, so without this
+    // check an unverified sending domain or a revoked key would look like a
+    // successful signup to the visitor while no mail ever left the building.
+    if (confirmation.error) {
+      console.error("[waitlist] confirmation send failed", confirmation.error);
+      return NextResponse.json(
+        {
+          error:
+            "We couldn't send your confirmation email. Please try again shortly.",
+        },
+        { status: 502 },
+      );
+    }
+
+    // The visitor is on the list once their confirmation is away. A failed team
+    // ping is ours to spot in the logs, not theirs to retry.
+    const notification = await resend.emails.send({
+      from: FROM,
+      to: TEAM_INBOX,
+      replyTo: address,
       subject: "New Waitlist Signup!",
-      html: `<p>New waitlist signup: <strong>${email}</strong></p>`,
+      html: `<p>New waitlist signup: <strong>${escapeHtml(address)}</strong></p>`,
     });
+
+    if (notification.error) {
+      console.error("[waitlist] team notification failed", notification.error);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unexpected error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[waitlist] unexpected failure", error);
+    return NextResponse.json(
+      { error: "We couldn't sign you up just now. Please try again shortly." },
+      { status: 500 },
+    );
   }
 }
