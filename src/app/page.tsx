@@ -304,7 +304,9 @@ export default function Home() {
   >("idle");
   const [errorMessage, setErrorMessage] = useState("");
   // Honeypot. Hidden from real visitors, so anything here came from a bot.
-  const [company, setCompany] = useState("");
+  // Not named "company": browsers autofill organization fields, and a real
+  // person whose browser filled it would be silently dropped as a bot.
+  const [honeypot, setHoneypot] = useState("");
 
   const handleWaitlist = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -314,7 +316,7 @@ export default function Home() {
       const res = await fetch("/api/waitlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, company }),
+        body: JSON.stringify({ email, hp_company: honeypot }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
@@ -616,9 +618,9 @@ export default function Home() {
           >
             <input
               type="text"
-              name="company"
-              value={company}
-              onChange={(e) => setCompany(e.target.value)}
+              name="hp_company"
+              value={honeypot}
+              onChange={(e) => setHoneypot(e.target.value)}
               tabIndex={-1}
               autoComplete="off"
               aria-hidden="true"

@@ -71,14 +71,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  const { email, company } = (payload ?? {}) as {
+  const { email, hp_company: honeypot } = (payload ?? {}) as {
     email?: unknown;
-    company?: unknown;
+    hp_company?: unknown;
   };
 
   // Honeypot. The field is hidden from real visitors, so anything in it came
   // from a bot — answer as if it worked rather than telling it what tripped.
-  if (typeof company === "string" && company.trim() !== "") {
+  // The name is deliberately not "company": browsers autofill organization
+  // fields, and a real person whose browser filled it would be dropped here.
+  if (typeof honeypot === "string" && honeypot.trim() !== "") {
     return NextResponse.json({ success: true });
   }
 
